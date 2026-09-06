@@ -78,6 +78,12 @@ JSON config example
   stripped and the `sigsci` variables stay unset on that path. One warning is
   logged when the agent goes away and one info line when it is back, and the
   global `debug` option shows every verdict.
+- The module announces itself to the agent as
+  `sigsci-module-golang
+  <version>-caddy`, the golang module type the console
+  recognizes plus the build version Go recorded for this module, the way
+  Fastly's Traefik plugin reports `sigsci-module-golang 0.0.1-traefik`, and
+  `caddy <version>` as the server.
 
 ## Development
 

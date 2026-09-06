@@ -95,7 +95,9 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 	simple, _ := caddy.Version()
 	opts := []sigsci.ModuleConfigOption{
-		sigsci.ModuleIdentifier("caddy-sigsci", version()),
+		// the console resolves the module type from the identifier name and knows only fastly's own modules,
+		// fastly's traefik plugin reports the golang module with a suffixed version the same way
+		sigsci.ModuleIdentifier("sigsci-module-golang", strings.TrimPrefix(version(), "v")+"-caddy"),
 		sigsci.ServerIdentifier("caddy " + simple),
 		sigsci.AllowUnknownContentLength(h.AllowUnknownContentLength),
 	}
