@@ -1,4 +1,4 @@
-# caddy-sigsci
+# Caddy SigSci
 
 Caddy HTTP handler for the Fastly Next-Gen WAF agent, formerly the Signal
 Sciences agent.
