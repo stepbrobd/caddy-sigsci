@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  Go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+
+      - name: Build
+        run: |
+          go run github.com/caddyserver/xcaddy/cmd/xcaddy@latest build --with github.com/stepbrobd/caddy-sigsci=. --output "$RUNNER_TEMP/caddy"
+          "$RUNNER_TEMP/caddy" list-modules | grep http.handlers.sigsci
