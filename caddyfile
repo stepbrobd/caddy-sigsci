@@ -1,0 +1,19 @@
+{
+	admin off
+	auto_https off
+	debug
+}
+
+http://127.0.0.1:8080 {
+	log
+
+	sigsci tcp 127.0.0.1:9999 {
+		timeout 500ms
+	}
+
+	route /proxy/* {
+		reverse_proxy 127.0.0.1:8081
+	}
+
+	respond "verdict={header.X-Sigsci-Agentresponse} id={header.X-Sigsci-Requestid} tags={header.X-Sigsci-Tags}"
+}
