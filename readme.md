@@ -77,6 +77,10 @@ JSON config example
   leaves bodies of unknown length alone, for streaming requests. Caddy's
   `request_body` directive runs first and its `max_size` and `read_timeout` cap
   what the module reads too.
+- Caddy runs `handle_errors` after the middleware has returned. A handler error
+  is reported with its status, which `respond` and `file_server` also give the
+  error page, a size of zero and the headers set before the error route ran. The
+  agent's response header actions are already among those headers.
 - An unreachable or slow agent fails open. The `X-Sigsci-*` request headers are
   stripped and the `sigsci` variables stay unset on that path. One warning is
   logged when the agent goes away and one info line when it is back, and the
