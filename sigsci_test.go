@@ -79,11 +79,18 @@ func (f *fakeInspector) wait(t *testing.T) {
 
 func newHandler(t *testing.T, insp sigsci.Inspector) *Handler {
 	t.Helper()
-	cfg, err := sigsci.NewModuleConfig()
-	if err != nil {
+	return provision(t, &Handler{inspector: insp})
+}
+
+func provision(t *testing.T, h *Handler) *Handler {
+	t.Helper()
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	t.Cleanup(cancel)
+	if err := h.Provision(ctx); err != nil {
 		t.Fatal(err)
 	}
-	return &Handler{config: cfg, inspector: insp, logger: zap.NewNop()}
+	h.logger = zap.NewNop()
+	return h
 }
 
 func request(method, target string, body io.Reader) *http.Request {
@@ -256,7 +263,7 @@ func TestBodyInspectedAndReplayed(t *testing.T) {
 	}
 
 	// a body of unknown length past the limit is replayed untouched and not inspected
-	h.config.SetOptions(sigsci.MaxContentLength(4), sigsci.AllowUnknownContentLength(true))
+	h.config.SetOptions(sigsci.MaxContentLength(4))
 	r = request("POST", "http://example.com/form", strings.NewReader("a=1&b=2"))
 	r.ContentLength = -1
 	r.Header.Set("Content-Type", "application/json")
@@ -265,6 +272,40 @@ func TestBodyInspectedAndReplayed(t *testing.T) {
 	}
 	if got != "a=1&b=2" || f.pre[1].PostBody != "" {
 		t.Fatalf("replayed=%q inspected=%q", got, f.pre[1].PostBody)
+	}
+}
+
+func TestUnknownLengthBodyInspectedUnlessSkipped(t *testing.T) {
+	const body = `{"q":"attack"}`
+	var got string
+	next := caddyhttp.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) error {
+		b, err := io.ReadAll(r.Body)
+		got = string(b)
+		return err
+	})
+	unknownLength := func() *http.Request {
+		r := request("POST", "http://example.com/form", strings.NewReader(body))
+		r.ContentLength = -1
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}
+
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	if err := h.ServeHTTP(httptest.NewRecorder(), unknownLength(), next); err != nil {
+		t.Fatal(err)
+	}
+	if got != body || f.pre[0].PostBody != body {
+		t.Fatalf("replayed=%q inspected=%q", got, f.pre[0].PostBody)
+	}
+
+	f = newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h = provision(t, &Handler{inspector: f, SkipUnknownContentLength: true})
+	if err := h.ServeHTTP(httptest.NewRecorder(), unknownLength(), next); err != nil {
+		t.Fatal(err)
+	}
+	if got != body || f.pre[0].PostBody != "" {
+		t.Fatalf("replayed=%q inspected=%q", got, f.pre[0].PostBody)
 	}
 }
 

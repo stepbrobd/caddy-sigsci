@@ -70,8 +70,8 @@ type Handler struct {
 	ExpectedContentTypes []string `json:"expected_content_types,omitempty"`
 	// inspect request bodies regardless of content type
 	ExtendContentTypes bool `json:"extend_content_types,omitempty"`
-	// inspect bodies of unknown length up to max_content_length
-	AllowUnknownContentLength bool `json:"allow_unknown_content_length,omitempty"`
+	// hand bodies without a content length to the next handler uninspected
+	SkipUnknownContentLength bool `json:"skip_unknown_content_length,omitempty"`
 	// report the transport peer instead of the trusted proxy resolved client ip
 	PeerAddress bool `json:"peer_address,omitempty"`
 
@@ -99,7 +99,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		// fastly's traefik plugin reports the golang module with a suffixed version the same way
 		sigsci.ModuleIdentifier("sigsci-module-golang", strings.TrimPrefix(version(), "v")+"-caddy"),
 		sigsci.ServerIdentifier("caddy " + simple),
-		sigsci.AllowUnknownContentLength(h.AllowUnknownContentLength),
+		sigsci.AllowUnknownContentLength(!h.SkipUnknownContentLength),
 	}
 	if h.Network != "" || h.Address != "" {
 		network, address := h.Network, h.Address
@@ -487,7 +487,7 @@ func (rw *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 //	    server_flavor <label>
 //	    expected_content_types <type...>
 //	    extend_content_types
-//	    allow_unknown_content_length
+//	    skip_unknown_content_length
 //	    peer_address
 //	}
 func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -550,8 +550,8 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			h.ExpectedContentTypes = append(h.ExpectedContentTypes, args...)
 		case "extend_content_types":
 			h.ExtendContentTypes = true
-		case "allow_unknown_content_length":
-			h.AllowUnknownContentLength = true
+		case "skip_unknown_content_length":
+			h.SkipUnknownContentLength = true
 		case "peer_address":
 			h.PeerAddress = true
 		default:

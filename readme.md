@@ -40,7 +40,7 @@ sigsci [<network> <address>] {
     server_flavor <label>            # shown in the console
     expected_content_types <type...> # extra body types to inspect
     extend_content_types             # inspect every body
-    allow_unknown_content_length     # inspect chunked bodies too
+    skip_unknown_content_length      # do not buffer bodies of unknown length
     peer_address                     # report the peer, not client_ip
 }
 ```
@@ -73,7 +73,10 @@ JSON config example
   `trusted_proxies`, unless `peer_address` is set.
 - Bodies of form, json, xml, grpc and graphql requests up to
   `max_content_length` are buffered for inspection and replayed to the next
-  handler.
+  handler, with or without a Content-Length. `skip_unknown_content_length`
+  leaves bodies of unknown length alone, for streaming requests. Caddy's
+  `request_body` directive runs first and its `max_size` and `read_timeout` cap
+  what the module reads too.
 - An unreachable or slow agent fails open. The `X-Sigsci-*` request headers are
   stripped and the `sigsci` variables stay unset on that path. One warning is
   logged when the agent goes away and one info line when it is back, and the
