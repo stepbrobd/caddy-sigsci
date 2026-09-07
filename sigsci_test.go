@@ -364,6 +364,26 @@ func TestRespActionsAndFlush(t *testing.T) {
 	}
 }
 
+func TestMalformedHeaderActionsIgnored(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200, RespActions: []schema.Action{
+		{Code: schema.SetHdr, Args: []string{"X-Short"}},
+		{Code: schema.DelHdr},
+		{Code: schema.AddHdr, Args: []string{"X-Waf", "seen"}},
+	}})
+	h := newHandler(t, f)
+	rec := httptest.NewRecorder()
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) error {
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	})
+	if err := h.ServeHTTP(rec, request("GET", "http://example.com/", nil), next); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusNoContent || rec.Header().Get("X-Waf") != "seen" || rec.Header().Get("X-Short") != "" {
+		t.Fatalf("code=%d hdr=%v", rec.Code, rec.Header())
+	}
+}
+
 // an error leaves the writing to caddy, the status and header actions must still land
 func TestErrorStatusReported(t *testing.T) {
 	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200, RequestID: "req-err",

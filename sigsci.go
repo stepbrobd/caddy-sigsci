@@ -410,21 +410,21 @@ type recorder struct {
 	actions []schema.Action
 }
 
-// apply merges the agent's header actions once
+// apply merges the agent's header actions once, skipping malformed ones
 func (rw *recorder) apply() {
 	hdr := rw.Header()
 	for _, a := range rw.actions {
-		switch a.Code {
-		case schema.AddHdr:
-			hdr.Add(a.Args[0], a.Args[1])
-		case schema.SetHdr:
-			hdr.Set(a.Args[0], a.Args[1])
-		case schema.SetNEHdr:
-			if hdr.Get(a.Args[0]) == "" {
-				hdr.Set(a.Args[0], a.Args[1])
-			}
-		case schema.DelHdr:
+		switch {
+		case len(a.Args) == 0:
+		case a.Code == schema.DelHdr:
 			hdr.Del(a.Args[0])
+		case len(a.Args) < 2:
+		case a.Code == schema.AddHdr:
+			hdr.Add(a.Args[0], a.Args[1])
+		case a.Code == schema.SetHdr:
+			hdr.Set(a.Args[0], a.Args[1])
+		case a.Code == schema.SetNEHdr && hdr.Get(a.Args[0]) == "":
+			hdr.Set(a.Args[0], a.Args[1])
 		}
 	}
 	rw.actions = nil
