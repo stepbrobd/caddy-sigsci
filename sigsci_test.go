@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +123,45 @@ func TestAllowSetsHeadersAndUpdates(t *testing.T) {
 	f.wait(t)
 	if len(f.update) != 1 || f.update[0].ResponseCode != 201 || f.update[0].ResponseSize != 5 || f.update[0].RequestID != "req-1" {
 		t.Fatalf("update %+v", f.update)
+	}
+}
+
+func TestAgentHeadersSurviveConnectionOptions(t *testing.T) {
+	var seen http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
+
+	f := newFake(sigsci.RPCMsgOut{
+		WAFResponse:    200,
+		RequestID:      "req-connection",
+		RequestHeaders: [][2]string{{"X-Sigsci-Tags", "SQLI"}},
+	})
+	h := newHandler(t, f)
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		proxy.ServeHTTP(w, r)
+		return nil
+	})
+	r := request("GET", "http://example.com/", nil)
+	r.Header.Set("Connection", "X-Sigsci-Requestid, x-sigsci-agentresponse, X-SIGSCI-TAGS, Keep-Me")
+	r.Header.Set("Keep-Me", "client")
+	if err := h.ServeHTTP(httptest.NewRecorder(), r, next); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Get("X-Sigsci-Requestid") != "req-connection" ||
+		seen.Get("X-Sigsci-Agentresponse") != "200" ||
+		seen.Get("X-Sigsci-Tags") != "SQLI" {
+		t.Fatalf("upstream headers %v", seen)
+	}
+	if seen.Get("Keep-Me") != "" {
+		t.Fatalf("unprotected connection option reached upstream: %v", seen)
 	}
 }
 

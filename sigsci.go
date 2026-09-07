@@ -220,6 +220,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 			r.Header.Add(kv[0], kv[1])
 		}
 	}
+	protectAgentHeaders(r.Header)
 	caddyhttp.SetVar(r.Context(), "sigsci.request_id", out.RequestID)
 	caddyhttp.SetVar(r.Context(), "sigsci.agent_response", int(out.WAFResponse))
 	caddyhttp.SetVar(r.Context(), "sigsci.tags", r.Header.Get("X-Sigsci-Tags"))
@@ -367,6 +368,25 @@ func (h *Handler) inspectable(hdr http.Header) bool {
 		return true
 	}
 	return false
+}
+
+// protectAgentHeaders drops the agent's header names from the client's
+// Connection header, which reverse_proxy would otherwise strip as hop by hop
+func protectAgentHeaders(h http.Header) {
+	var kept []string
+	for _, value := range h.Values("Connection") {
+		for token := range strings.SplitSeq(value, ",") {
+			token = strings.TrimSpace(token)
+			if token != "" && !strings.HasPrefix(http.CanonicalHeaderKey(token), "X-Sigsci-") {
+				kept = append(kept, token)
+			}
+		}
+	}
+	if len(kept) == 0 {
+		h.Del("Connection")
+		return
+	}
+	h.Set("Connection", strings.Join(kept, ", "))
 }
 
 func headers(h http.Header) [][2]string {
