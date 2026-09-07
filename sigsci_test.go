@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -201,6 +202,36 @@ func TestBodyInspectedAndReplayed(t *testing.T) {
 	}
 	if got != "a=1&b=2" || f.pre[1].PostBody != "" {
 		t.Fatalf("replayed=%q inspected=%q", got, f.pre[1].PostBody)
+	}
+}
+
+func TestBodyReadErrorReplayed(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	const body = `{"q":"attack"}`
+	r := request("POST", "http://example.com/form", nil)
+	r.Body = io.NopCloser(io.MultiReader(
+		strings.NewReader(body),
+		iotest.ErrReader(io.ErrUnexpectedEOF),
+	))
+	r.ContentLength = int64(len(body))
+	r.Header.Set("Content-Type", "application/json")
+
+	var got []byte
+	next := caddyhttp.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) error {
+		var err error
+		got, err = io.ReadAll(r.Body)
+		return err
+	})
+	err := h.ServeHTTP(httptest.NewRecorder(), r, next)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("downstream error %v", err)
+	}
+	if string(got) != body {
+		t.Fatalf("downstream body %q", got)
+	}
+	if f.pre[0].PostBody != "" {
+		t.Fatalf("inspected partial body %q", f.pre[0].PostBody)
 	}
 }
 

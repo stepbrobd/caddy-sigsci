@@ -313,8 +313,8 @@ func (h *Handler) readBody(r *http.Request) []byte {
 
 	buf, err := io.ReadAll(io.LimitReader(r.Body, cfg.MaxContentLength()+1))
 	if err != nil || int64(len(buf)) > cfg.MaxContentLength() {
-		// too large or truncated, replay what was consumed and skip inspection
-		r.Body = readCloser{io.MultiReader(bytes.NewReader(buf), r.Body), r.Body}
+		// too large or truncated, replay the consumed bytes and the read error ahead of the rest
+		r.Body = readCloser{io.MultiReader(bytes.NewReader(buf), &readError{err}, r.Body), r.Body}
 		return nil
 	}
 	r.Body.Close()
@@ -325,6 +325,18 @@ func (h *Handler) readBody(r *http.Request) []byte {
 type readCloser struct {
 	io.Reader
 	io.Closer
+}
+
+// readError returns its error once, then EOF
+type readError struct{ err error }
+
+func (e *readError) Read([]byte) (int, error) {
+	err := e.err
+	e.err = nil
+	if err == nil {
+		return 0, io.EOF
+	}
+	return 0, err
 }
 
 // inspectable mirrors the content type selection of sigsci-module-golang
