@@ -124,6 +124,28 @@ func TestAllowSetsHeadersAndUpdates(t *testing.T) {
 	}
 }
 
+func TestPostRequestUsesInspectedURI(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		r.RequestURI = "/rewritten"
+		r.URL.Path = "/rewritten"
+		http.Error(w, "missing", http.StatusNotFound)
+		return nil
+	})
+	r := request("GET", "/original?x=1", nil)
+	if err := h.ServeHTTP(httptest.NewRecorder(), r, next); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(t)
+	if len(f.post) != 1 {
+		t.Fatalf("post request count %d", len(f.post))
+	}
+	if f.post[0].URI != "/original?x=1" {
+		t.Fatalf("post request URI %q", f.post[0].URI)
+	}
+}
+
 func TestBlockAndRedirect(t *testing.T) {
 	f := newFake(sigsci.RPCMsgOut{WAFResponse: 406})
 	h := newHandler(t, f)

@@ -282,12 +282,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 			}
 		}()
 	} else if code >= 300 || rw.size >= h.config.AnomalySize() || duration >= h.config.AnomalyDuration() {
-		post := sigsci.NewRPCMsgIn(h.config, r, nil, code, rw.size, duration)
-		post.RemoteAddr = in.RemoteAddr
+		post := *in
+		post.NowMillis = time.Now().UnixMilli()
 		post.WAFResponse = out.WAFResponse
+		post.ResponseCode = int32(code)
+		post.ResponseMillis = duration.Milliseconds()
+		post.ResponseSize = rw.size
 		post.HeadersOut = headersOut
+		post.PostBody = ""
 		go func() {
-			if err := h.inspector.PostRequest(post, &sigsci.RPCMsgOut{}); err != nil {
+			if err := h.inspector.PostRequest(&post, &sigsci.RPCMsgOut{}); err != nil {
 				h.logger.Debug("postrequest failed", zap.Error(err))
 			}
 		}()
