@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/caddyserver/caddy/v2 v2.11.4
-	github.com/dustin/go-humanize v1.0.1
+	github.com/dustin/go-humanize v1.1.0
 	github.com/signalsciences/sigsci-module-golang v1.16.0
 	github.com/tinylib/msgp v1.6.4
 	go.uber.org/zap v1.28.0
