@@ -181,7 +181,7 @@ func version() string {
 	return "devel"
 }
 
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) (err error) {
 	start := time.Now()
 
 	body := h.readBody(r)
@@ -235,7 +235,62 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 		actions:               out.RespActions,
 	}
 
-	var err error
+	// deferred because a chain that panics never returns here
+	// abort and a failed proxy stream panic and must still be reported
+	returned := false
+	defer func() {
+		duration := time.Since(start)
+		code := rw.status
+		if code == 0 && !returned {
+			code = statusNoResponse
+		}
+		if code == 0 {
+			// nothing written yet, the error handler answers on the same header
+			// map, so the agent's header actions still apply
+			rw.apply()
+			// caddy unwraps the error the same way to pick the status it writes
+			herr, ok := errors.AsType[caddyhttp.HandlerError](err)
+			switch {
+			case err == nil:
+				code = http.StatusOK
+			case ok:
+				code = herr.StatusCode
+			default:
+				code = http.StatusInternalServerError
+			}
+		}
+		headersOut := headers(rw.Header())
+
+		if out.RequestID != "" {
+			upd := sigsci.RPCMsgIn2{
+				RequestID:      out.RequestID,
+				ResponseCode:   int32(code),
+				ResponseSize:   rw.size,
+				ResponseMillis: duration.Milliseconds(),
+				HeadersOut:     headersOut,
+			}
+			go func() {
+				if err := h.inspector.UpdateRequest(&upd, &sigsci.RPCMsgOut{}); err != nil {
+					h.logger.Debug("updaterequest failed", zap.Error(err))
+				}
+			}()
+		} else if code >= 300 || rw.size >= h.config.AnomalySize() || duration >= h.config.AnomalyDuration() {
+			post := *in
+			post.NowMillis = time.Now().UnixMilli()
+			post.WAFResponse = out.WAFResponse
+			post.ResponseCode = int32(code)
+			post.ResponseMillis = duration.Milliseconds()
+			post.ResponseSize = rw.size
+			post.HeadersOut = headersOut
+			post.PostBody = ""
+			go func() {
+				if err := h.inspector.PostRequest(&post, &sigsci.RPCMsgOut{}); err != nil {
+					h.logger.Debug("postrequest failed", zap.Error(err))
+				}
+			}()
+		}
+	}()
+
 	waf := int(out.WAFResponse)
 	switch {
 	case h.config.IsAllowCode(waf):
@@ -252,54 +307,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 		h.logger.Error("invalid agent response code, failing open", zap.Int("code", waf))
 		err = next.ServeHTTP(rw, r)
 	}
-
-	duration := time.Since(start)
-	code := rw.status
-	if code == 0 {
-		// nothing written yet, the error handler answers on the same header
-		// map, so the agent's header actions still apply
-		rw.apply()
-		// caddy unwraps the error the same way to pick the status it writes
-		herr, ok := errors.AsType[caddyhttp.HandlerError](err)
-		switch {
-		case err == nil:
-			code = http.StatusOK
-		case ok:
-			code = herr.StatusCode
-		default:
-			code = http.StatusInternalServerError
-		}
-	}
-	headersOut := headers(rw.Header())
-
-	if out.RequestID != "" {
-		upd := sigsci.RPCMsgIn2{
-			RequestID:      out.RequestID,
-			ResponseCode:   int32(code),
-			ResponseSize:   rw.size,
-			ResponseMillis: duration.Milliseconds(),
-			HeadersOut:     headersOut,
-		}
-		go func() {
-			if err := h.inspector.UpdateRequest(&upd, &sigsci.RPCMsgOut{}); err != nil {
-				h.logger.Debug("updaterequest failed", zap.Error(err))
-			}
-		}()
-	} else if code >= 300 || rw.size >= h.config.AnomalySize() || duration >= h.config.AnomalyDuration() {
-		post := *in
-		post.NowMillis = time.Now().UnixMilli()
-		post.WAFResponse = out.WAFResponse
-		post.ResponseCode = int32(code)
-		post.ResponseMillis = duration.Milliseconds()
-		post.ResponseSize = rw.size
-		post.HeadersOut = headersOut
-		post.PostBody = ""
-		go func() {
-			if err := h.inspector.PostRequest(&post, &sigsci.RPCMsgOut{}); err != nil {
-				h.logger.Debug("postrequest failed", zap.Error(err))
-			}
-		}()
-	}
+	returned = true
 	return err
 }
 

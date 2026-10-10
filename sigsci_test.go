@@ -443,6 +443,27 @@ func TestConnectStreamNotBuffered(t *testing.T) {
 	}
 }
 
+// abort panics out of the chain before anything is written
+func TestAbortReported(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	next := caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		panic(http.ErrAbortHandler)
+	})
+	func() {
+		defer func() {
+			if v := recover(); v != http.ErrAbortHandler {
+				t.Fatalf("panic %v", v)
+			}
+		}()
+		_ = h.ServeHTTP(httptest.NewRecorder(), request("GET", "http://example.com/", nil), next)
+	}()
+	f.wait(t)
+	if len(f.post) != 1 || f.post[0].ResponseCode != statusNoResponse {
+		t.Fatalf("post %+v", f.post)
+	}
+}
+
 // the msgpack framing of the real client against the fake agent
 func TestRPCRoundTrip(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
