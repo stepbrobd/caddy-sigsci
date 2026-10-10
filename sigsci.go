@@ -48,7 +48,9 @@ func init() {
 	httpcaddyfile.RegisterHandlerDirective("sigsci", parseCaddyfile)
 	// after vars, header and request_body so body limits and deferred
 	// response headers apply, before anything that rewrites or answers
-	httpcaddyfile.RegisterDirectiveOrder("sigsci", httpcaddyfile.After, "request_body")
+	// after timeouts as well
+	// whose read deadline would cancel the request once the module drained the body
+	httpcaddyfile.RegisterDirectiveOrder("sigsci", httpcaddyfile.After, "timeouts")
 }
 
 // Handler inspects requests with the Next-Gen WAF agent
