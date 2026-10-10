@@ -3,6 +3,7 @@ package sigsci
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -403,6 +404,17 @@ func TestErrorStatusReported(t *testing.T) {
 	f.wait(t)
 	if f.update[0].ResponseCode != 502 {
 		t.Fatalf("update code %d", f.update[0].ResponseCode)
+	}
+
+	next = caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		return fmt.Errorf("auth: %w", caddyhttp.Error(http.StatusForbidden, errors.New("denied")))
+	})
+	if err := h.ServeHTTP(httptest.NewRecorder(), request("GET", "http://example.com/", nil), next); err == nil {
+		t.Fatal("error swallowed")
+	}
+	f.wait(t)
+	if f.update[1].ResponseCode != 403 {
+		t.Fatalf("wrapped update code %d", f.update[1].ResponseCode)
 	}
 }
 

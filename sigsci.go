@@ -8,6 +8,7 @@ package sigsci
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -258,10 +259,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 		// nothing written yet, the error handler answers on the same header
 		// map, so the agent's header actions still apply
 		rw.apply()
-		switch herr := err.(type) {
-		case nil:
+		// caddy unwraps the error the same way to pick the status it writes
+		herr, ok := errors.AsType[caddyhttp.HandlerError](err)
+		switch {
+		case err == nil:
 			code = http.StatusOK
-		case caddyhttp.HandlerError:
+		case ok:
 			code = herr.StatusCode
 		default:
 			code = http.StatusInternalServerError
