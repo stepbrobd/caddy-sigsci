@@ -1,14 +1,10 @@
 # Caddy SigSci
 
 Caddy HTTP handler for the Fastly Next-Gen WAF agent, formerly the Signal
-Sciences agent.
-
-The handler sends each request to a local `sigsci-agent` over its module RPC
-socket, enforces the verdict and reports the response back, the same contract
-the official nginx, apache and Go modules implement. It drives the RPC client of
-[sigsci-module-golang](https://github.com/signalsciences/sigsci-module-golang)
-directly, with Caddy native response writer (for flushing, websockets and
-HTTP/2, etc.).
+Sciences agent. Like the official nginx, Apache and Go modules, it sends each
+request to a local `sigsci-agent` over the module RPC socket, enforces the
+verdict and reports the response, using the RPC client of
+[sigsci-module-golang](https://github.com/signalsciences/sigsci-module-golang).
 
 ## Guide
 
@@ -58,49 +54,38 @@ JSON config example
 
 ## Behavior
 
-- The directive orders itself after `request_body`, body limits apply before
-  inspection and deferred `header` ops land on blocked responses. The `order`
-  global option overrides that.
-- The agent answers 200 to allow. Any code from 300 to 599 blocks the request
-  with that status, and a 3xx together with an `X-Sigsci-Redirect` header
-  redirects.
+- The directive runs after `header`, `request_body` and `timeouts`, so deferred
+  `header` ops land on blocked responses and body limits apply before
+  inspection. A custom `order` must keep it after `timeouts`.
+- The agent allows with 200 and blocks with any status from 300 to 599,
+  redirecting a 3xx that carries `X-Sigsci-Redirect`.
 - The next handler receives `X-Sigsci-Requestid`, `X-Sigsci-Agentresponse` and
-  `X-Sigsci-Tags`, so `reverse_proxy` forwards them upstream. Values a client
-  sent under those names are dropped first.
-- `{http.vars.sigsci.request_id}`, `{http.vars.sigsci.agent_response}` and
-  `{http.vars.sigsci.tags}` are set for later directives and for `log`.
-- The address reported to the agent is Caddy's `client_ip`, resolved through
-  `trusted_proxies`, unless `peer_address` is set.
-- Bodies of form, json, xml, grpc and graphql requests up to
-  `max_content_length` are buffered for inspection and replayed to the next
-  handler, with or without a Content-Length. `skip_unknown_content_length`
-  leaves bodies of unknown length alone, for streaming requests. Caddy's
-  `request_body` directive runs first and its `max_size` and `read_timeout` cap
-  what the module reads too.
-- Caddy runs `handle_errors` after the middleware has returned. A handler error
-  is reported with its status, which `respond` and `file_server` also give the
-  error page, a size of zero and the headers set before the error route ran. The
-  agent's response header actions are already among those headers.
-- An unreachable or slow agent fails open. The `X-Sigsci-*` request headers are
-  stripped and the `sigsci` variables stay unset on that path. One warning is
-  logged when the agent goes away and one info line when it is back, and the
-  global `debug` option shows every verdict.
-- The module announces itself to the agent as
-  `sigsci-module-golang
-  <version>-caddy`, the golang module type the console
-  recognizes plus the build version Go recorded for this module, the way
-  Fastly's Traefik plugin reports `sigsci-module-golang 0.0.1-traefik`, and
-  `caddy <version>` as the server.
+  `X-Sigsci-Tags` in place of any the client sent, and
+  `{http.vars.sigsci.request_id}`, `{http.vars.sigsci.agent_response}` and
+  `{http.vars.sigsci.tags}` are set for later directives and `log`.
+- An unreachable or slow agent fails open, without these headers and variables.
+  A warning marks each outage and an info line its end, and the global `debug`
+  option logs every verdict.
+- The agent sees Caddy's `client_ip`, resolved through `trusted_proxies`.
+- Bodies are buffered for inspection and replayed, with or without a
+  Content-Length, when the Content-Type is absent, a list, or form, multipart,
+  json, javascript, xml, grpc or graphql. CONNECT tunnels, such as WebSockets
+  over HTTP/2 or HTTP/3, are never buffered. The `max_size` of `request_body`
+  and the server's `read_body_idle` timeout bound the read, and a
+  `max_content_length` of 0 turns body inspection off.
+- A handler error is reported with its status, a size of zero and the headers at
+  that point, which already carry the agent's header actions, since Caddy runs
+  `handle_errors` after the middleware returns. A request cut off by `abort` or
+  a failed proxy stream is reported as well, as 444 when nothing was sent.
+- The module announces itself as `sigsci-module-golang <version>-caddy`, a type
+  the console recognizes, as Fastly's Traefik plugin does, and the server as
+  `caddy <version>`.
 
 ## Development
 
 `make agent` runs a fake agent on `127.0.0.1:9999` that blocks anything
 mentioning `attack`, `make build` builds Caddy with the plugin from the working
 tree and `make run` serves the example `caddyfile` against it.
-
-The `exclude` block in `go.mod` blocks releases that Caddy 2.11.4 cannot compile
-against, since an xcaddy build takes the higher of Caddy's and the plugin's
-requirements, and it goes away with the next Caddy bump.
 
 ## License
 
