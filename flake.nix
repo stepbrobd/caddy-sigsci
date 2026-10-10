@@ -38,7 +38,7 @@
   };
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.systems.url = "github:nix-systems/default";
+  inputs.systems.url = "github:nix-systems/triplet";
   inputs.parts.url = "github:hercules-ci/flake-parts";
   inputs.parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 }
