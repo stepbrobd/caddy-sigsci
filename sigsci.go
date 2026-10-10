@@ -192,7 +192,10 @@ func version() string {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) (err error) {
 	start := time.Now()
 
-	body := h.readBody(w, r)
+	body, err := h.readBody(w, r)
+	if err != nil {
+		return err
+	}
 	in := sigsci.NewRPCMsgIn(h.config, r, body, -1, -1, 0)
 	if !h.PeerAddress {
 		if ip, ok := caddyhttp.GetVar(r.Context(), caddyhttp.ClientIPVarKey).(string); ok && ip != "" {
@@ -321,23 +324,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 
 // readBody buffers an inspectable request body and hands the handler chain
 // an equivalent reader, never holding more than max_content_length plus one byte
-func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) []byte {
+func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	// a CONNECT stream is a tunnel the client fills only after the response
 	if r.Body == nil || r.Body == http.NoBody || r.Method == http.MethodConnect {
-		return nil
+		return nil, nil
 	}
 	cfg := h.config
 	limit := cfg.MaxContentLength()
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
 	if !(cfg.AllowUnknownContentLength() && r.ContentLength == -1) {
 		if r.ContentLength <= 0 || r.ContentLength > limit {
-			return nil
+			return nil, nil
 		}
 	}
 	if !h.ExtendContentTypes && !h.inspectable(r.Header) {
-		return nil
+		return nil, nil
+	}
+	// inspection needs the whole body before forwarding it
+	// so RFC 10036 asks for a 501 instead of buffering a request marked incremental
+	if caddyhttp.IsIncremental(r.Header) {
+		return nil, caddyhttp.Error(http.StatusNotImplemented, errors.New("refusing to buffer an incremental request for inspection"))
 	}
 
 	// the byte past the limit marks an oversized body
@@ -354,11 +362,11 @@ func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) []byte {
 	if err != nil || int64(len(buf)) > limit {
 		// too large or truncated, replay the consumed bytes and the read error ahead of the rest
 		r.Body = readCloser{io.MultiReader(bytes.NewReader(buf), &readError{err}, r.Body), r.Body}
-		return nil
+		return nil, nil
 	}
 	r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(buf))
-	return buf
+	return buf, nil
 }
 
 type readCloser struct {

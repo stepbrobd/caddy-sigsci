@@ -470,6 +470,32 @@ func TestConnectStreamNotBuffered(t *testing.T) {
 	}
 }
 
+// RFC 10036 section 4.1 asks an inspecting intermediary for a 501 instead of buffering
+func TestIncrementalRefusedInsteadOfBuffered(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	reached := false
+	next := caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		reached = true
+		return nil
+	})
+	r := request("POST", "http://example.com/stream", strings.NewReader(`{"q":1}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Incremental", "?1")
+	err := h.ServeHTTP(httptest.NewRecorder(), r, next)
+	if herr, ok := errors.AsType[caddyhttp.HandlerError](err); !ok || herr.StatusCode != http.StatusNotImplemented || reached || len(f.pre) != 0 {
+		t.Fatalf("err=%v reached=%v prerequests=%d", err, reached, len(f.pre))
+	}
+
+	// a body the module never buffers is forwarded as it arrives
+	r = request("POST", "http://example.com/stream", strings.NewReader("raw"))
+	r.Header.Set("Content-Type", "application/octet-stream")
+	r.Header.Set("Incremental", "?1")
+	if err := h.ServeHTTP(httptest.NewRecorder(), r, next); err != nil || !reached {
+		t.Fatalf("err=%v reached=%v", err, reached)
+	}
+}
+
 // abort panics out of the chain before anything is written
 func TestAbortReported(t *testing.T) {
 	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
