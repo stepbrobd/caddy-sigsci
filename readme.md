@@ -70,9 +70,11 @@ JSON config example
 - Bodies are buffered for inspection and replayed, with or without a
   Content-Length, when the Content-Type is absent, a list, or form, multipart,
   json, javascript, xml, grpc or graphql. CONNECT tunnels, such as WebSockets
-  over HTTP/2 or HTTP/3, are never buffered. The `max_size` of `request_body`
-  and the server's `read_body_idle` timeout bound the read, and a
-  `max_content_length` of 0 turns body inspection off.
+  over HTTP/2 or HTTP/3, are never buffered. A request marked `Incremental: ?1`
+  gets a 501 instead of being buffered, as RFC 10036 asks of inspecting
+  intermediaries. The `max_size` of `request_body` and the server's
+  `read_body_idle` timeout bound the read, and a `max_content_length` of 0 turns
+  body inspection off.
 - A handler error is reported with its status, a size of zero and the headers at
   that point, which already carry the agent's header actions, since Caddy runs
   `handle_errors` after the middleware returns. A request cut off by `abort` or
