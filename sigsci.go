@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -339,7 +340,9 @@ func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) []byte {
 		return nil
 	}
 
-	buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	// the byte past the limit marks an oversized body
+	// min keeps limit+1 from overflowing
+	buf, err := io.ReadAll(io.LimitReader(r.Body, min(limit, math.MaxInt64-1)+1))
 	if err != nil {
 		// caddy clears the read deadline after a failed read
 		// and net/http drains the rest of the body before answering

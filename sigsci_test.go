@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -273,6 +274,17 @@ func TestBodyInspectedAndReplayed(t *testing.T) {
 	}
 	if got != "a=1&b=2" || f.pre[1].PostBody != "" {
 		t.Fatalf("replayed=%q inspected=%q", got, f.pre[1].PostBody)
+	}
+
+	// the largest limit must not overflow into an empty read
+	h.config.SetOptions(sigsci.MaxContentLength(math.MaxInt64))
+	r = request("POST", "http://example.com/form", strings.NewReader("a=1&b=2"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if err := h.ServeHTTP(httptest.NewRecorder(), r, next); err != nil {
+		t.Fatal(err)
+	}
+	if got != "a=1&b=2" || f.pre[2].PostBody != "a=1&b=2" {
+		t.Fatalf("replayed=%q inspected=%q", got, f.pre[2].PostBody)
 	}
 }
 
