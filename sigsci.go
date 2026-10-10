@@ -191,7 +191,7 @@ func version() string {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) (err error) {
 	start := time.Now()
 
-	body := h.readBody(r)
+	body := h.readBody(w, r)
 	in := sigsci.NewRPCMsgIn(h.config, r, body, -1, -1, 0)
 	if !h.PeerAddress {
 		if ip, ok := caddyhttp.GetVar(r.Context(), caddyhttp.ClientIPVarKey).(string); ok && ip != "" {
@@ -320,7 +320,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 
 // readBody buffers an inspectable request body and hands the handler chain
 // an equivalent reader, never holding more than max_content_length plus one byte
-func (h *Handler) readBody(r *http.Request) []byte {
+func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) []byte {
 	// a CONNECT stream is a tunnel the client fills only after the response
 	if r.Body == nil || r.Body == http.NoBody || r.Method == http.MethodConnect {
 		return nil
@@ -340,6 +340,14 @@ func (h *Handler) readBody(r *http.Request) []byte {
 	}
 
 	buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		// caddy clears the read deadline after a failed read
+		// and net/http drains the rest of the body before answering
+		// so a stalled client would hold the connection forever
+		if err := http.NewResponseController(w).SetReadDeadline(time.Now()); err != nil {
+			h.logger.Debug("cannot expire the read deadline", zap.Error(err))
+		}
+	}
 	if err != nil || int64(len(buf)) > limit {
 		// too large or truncated, replay the consumed bytes and the read error ahead of the rest
 		r.Body = readCloser{io.MultiReader(bytes.NewReader(buf), &readError{err}, r.Body), r.Body}

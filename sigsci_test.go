@@ -328,7 +328,8 @@ func TestBodyReadErrorReplayed(t *testing.T) {
 		got, err = io.ReadAll(r.Body)
 		return err
 	})
-	err := h.ServeHTTP(httptest.NewRecorder(), r, next)
+	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	err := h.ServeHTTP(rec, r, next)
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("downstream error %v", err)
 	}
@@ -338,6 +339,20 @@ func TestBodyReadErrorReplayed(t *testing.T) {
 	if f.pre[0].PostBody != "" {
 		t.Fatalf("inspected partial body %q", f.pre[0].PostBody)
 	}
+	if rec.read.IsZero() || rec.read.After(time.Now()) {
+		t.Fatalf("read deadline %v leaves the drain of the body unbounded", rec.read)
+	}
+}
+
+// deadlineRecorder keeps the read deadline set through http.ResponseController
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	read time.Time
+}
+
+func (d *deadlineRecorder) SetReadDeadline(t time.Time) error {
+	d.read = t
+	return nil
 }
 
 // the wrapper must keep Unwrap so a flush through http.ResponseController
