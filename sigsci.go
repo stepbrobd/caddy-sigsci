@@ -59,12 +59,12 @@ type Handler struct {
 	Address string `json:"address,omitempty"`
 	// timeout of each RPC call, the request fails open when it elapses, default 100ms
 	Timeout caddy.Duration `json:"timeout,omitempty"`
-	// largest request body sent for inspection, default 100000
-	MaxContentLength int64 `json:"max_content_length,omitempty"`
+	// largest request body sent for inspection, default 100000, 0 sends none
+	MaxContentLength *int64 `json:"max_content_length,omitempty"`
 	// response size from which an unflagged request is still reported, default 512 KiB
-	AnomalySize int64 `json:"anomaly_size,omitempty"`
+	AnomalySize *int64 `json:"anomaly_size,omitempty"`
 	// response time from which an unflagged request is still reported, default 1s
-	AnomalyDuration caddy.Duration `json:"anomaly_duration,omitempty"`
+	AnomalyDuration *caddy.Duration `json:"anomaly_duration,omitempty"`
 	// free form label shown in the console
 	ServerFlavor string `json:"server_flavor,omitempty"`
 	// extra request content types whose bodies are inspected
@@ -93,6 +93,11 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 // an unreachable agent is not fatal because every request fails open
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.logger = ctx.Logger()
+	if h.MaxContentLength != nil && *h.MaxContentLength < 0 ||
+		h.AnomalySize != nil && *h.AnomalySize < 0 ||
+		h.AnomalyDuration != nil && *h.AnomalyDuration < 0 {
+		return errors.New("max_content_length, anomaly_size and anomaly_duration must not be negative")
+	}
 
 	simple, _ := caddy.Version()
 	opts := []sigsci.ModuleConfigOption{
@@ -115,14 +120,14 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 	if h.Timeout > 0 {
 		opts = append(opts, sigsci.Timeout(time.Duration(h.Timeout)))
 	}
-	if h.MaxContentLength > 0 {
-		opts = append(opts, sigsci.MaxContentLength(h.MaxContentLength))
+	if h.MaxContentLength != nil {
+		opts = append(opts, sigsci.MaxContentLength(*h.MaxContentLength))
 	}
-	if h.AnomalySize > 0 {
-		opts = append(opts, sigsci.AnomalySize(h.AnomalySize))
+	if h.AnomalySize != nil {
+		opts = append(opts, sigsci.AnomalySize(*h.AnomalySize))
 	}
-	if h.AnomalyDuration > 0 {
-		opts = append(opts, sigsci.AnomalyDuration(time.Duration(h.AnomalyDuration)))
+	if h.AnomalyDuration != nil {
+		opts = append(opts, sigsci.AnomalyDuration(time.Duration(*h.AnomalyDuration)))
 	}
 	if h.ServerFlavor != "" {
 		opts = append(opts, sigsci.ServerFlavor(h.ServerFlavor))
@@ -319,8 +324,12 @@ func (h *Handler) readBody(r *http.Request) []byte {
 		return nil
 	}
 	cfg := h.config
+	limit := cfg.MaxContentLength()
+	if limit <= 0 {
+		return nil
+	}
 	if !(cfg.AllowUnknownContentLength() && r.ContentLength == -1) {
-		if r.ContentLength <= 0 || r.ContentLength > cfg.MaxContentLength() {
+		if r.ContentLength <= 0 || r.ContentLength > limit {
 			return nil
 		}
 	}
@@ -328,8 +337,8 @@ func (h *Handler) readBody(r *http.Request) []byte {
 		return nil
 	}
 
-	buf, err := io.ReadAll(io.LimitReader(r.Body, cfg.MaxContentLength()+1))
-	if err != nil || int64(len(buf)) > cfg.MaxContentLength() {
+	buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil || int64(len(buf)) > limit {
 		// too large or truncated, replay the consumed bytes and the read error ahead of the rest
 		r.Body = readCloser{io.MultiReader(bytes.NewReader(buf), &readError{err}, r.Body), r.Body}
 		return nil
@@ -534,10 +543,11 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if err != nil {
 				return d.Errf("bad %s: %v", key, err)
 			}
+			v := caddy.Duration(dur)
 			if key == "timeout" {
-				h.Timeout = caddy.Duration(dur)
+				h.Timeout = v
 			} else {
-				h.AnomalyDuration = caddy.Duration(dur)
+				h.AnomalyDuration = &v
 			}
 		case "max_content_length", "anomaly_size":
 			key := d.Val()
@@ -548,10 +558,14 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if err != nil {
 				return d.Errf("bad %s: %v", key, err)
 			}
+			n := int64(size)
+			if n < 0 {
+				return d.Errf("bad %s: %s is too large", key, d.Val())
+			}
 			if key == "max_content_length" {
-				h.MaxContentLength = int64(size)
+				h.MaxContentLength = &n
 			} else {
-				h.AnomalySize = int64(size)
+				h.AnomalySize = &n
 			}
 		case "server_flavor":
 			if !d.NextArg() {
