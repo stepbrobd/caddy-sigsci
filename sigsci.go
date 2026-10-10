@@ -482,10 +482,14 @@ func (rw *recorder) FlushError() error {
 	return http.NewResponseController(rw.ResponseWriterWrapper).Flush()
 }
 
-// Hijack records the protocol switch and hands the connection over
+// Hijack records a protocol switch only once the connection is handed over
+// and nothing was written before
 func (rw *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	rw.status = http.StatusSwitchingProtocols
-	return http.NewResponseController(rw.ResponseWriterWrapper).Hijack()
+	conn, brw, err := http.NewResponseController(rw.ResponseWriterWrapper).Hijack()
+	if err == nil && rw.status == 0 {
+		rw.status = http.StatusSwitchingProtocols
+	}
+	return conn, brw, err
 }
 
 // UnmarshalCaddyfile parses

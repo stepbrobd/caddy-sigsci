@@ -464,6 +464,30 @@ func TestAbortReported(t *testing.T) {
 	}
 }
 
+// a failed hijack leaves the response to the handler's fallback
+func TestFailedHijackKeepsStatus(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) error {
+		if _, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			t.Fatal("recorder hijacked")
+		}
+		http.Error(w, "no upgrade", http.StatusInternalServerError)
+		return nil
+	})
+	rec := httptest.NewRecorder()
+	if err := h.ServeHTTP(rec, request("GET", "http://example.com/ws", nil), next); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("client code %d", rec.Code)
+	}
+	f.wait(t)
+	if f.post[0].ResponseCode != http.StatusInternalServerError {
+		t.Fatalf("agent code %d", f.post[0].ResponseCode)
+	}
+}
+
 // the msgpack framing of the real client against the fake agent
 func TestRPCRoundTrip(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
