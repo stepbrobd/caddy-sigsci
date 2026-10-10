@@ -303,7 +303,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 // readBody buffers an inspectable request body and hands the handler chain
 // an equivalent reader, never holding more than max_content_length plus one byte
 func (h *Handler) readBody(r *http.Request) []byte {
-	if r.Body == nil || r.Body == http.NoBody {
+	// a CONNECT stream is a tunnel the client fills only after the response
+	if r.Body == nil || r.Body == http.NoBody || r.Method == http.MethodConnect {
 		return nil
 	}
 	cfg := h.config

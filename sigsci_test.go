@@ -406,6 +406,31 @@ func TestErrorStatusReported(t *testing.T) {
 	}
 }
 
+// the client fills a CONNECT tunnel only once the response arrives
+func TestConnectStreamNotBuffered(t *testing.T) {
+	f := newFake(sigsci.RPCMsgOut{WAFResponse: 200})
+	h := newHandler(t, f)
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- h.ServeHTTP(httptest.NewRecorder(), request(http.MethodConnect, "/ws", pr), next) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("tunnel buffered before the response")
+	}
+	if len(f.pre) != 1 || f.pre[0].Method != http.MethodConnect || f.pre[0].URI != "/ws" {
+		t.Fatalf("prerequest %+v", f.pre)
+	}
+}
+
 // the msgpack framing of the real client against the fake agent
 func TestRPCRoundTrip(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
