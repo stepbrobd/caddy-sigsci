@@ -3,7 +3,7 @@ module github.com/stepbrobd/caddy-sigsci
 go 1.26.0
 
 require (
-	github.com/caddyserver/caddy/v2 v2.11.8
+	github.com/caddyserver/caddy/v2 v2.11.9
 	github.com/dustin/go-humanize v1.1.0
 	github.com/signalsciences/sigsci-module-golang v1.16.0
 	github.com/tinylib/msgp v1.6.5
